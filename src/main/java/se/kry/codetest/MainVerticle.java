@@ -4,6 +4,7 @@ import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.sql.ResultSet;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.StaticHandler;
@@ -15,7 +16,6 @@ import java.util.stream.Collectors;
 public class MainVerticle extends AbstractVerticle {
 
   private HashMap<String, String> services = new HashMap<>();
-  //TODO use this
   private DBConnector connector;
   private BackgroundPoller poller = new BackgroundPoller();
 
@@ -24,8 +24,17 @@ public class MainVerticle extends AbstractVerticle {
     connector = new DBConnector(vertx);
     Router router = Router.router(vertx);
     router.route().handler(BodyHandler.create());
+
+    // read list from database
+    Future<ResultSet> servicesList = connector.query("SELECT * FROM service");
+    ResultSet rs = servicesList.result();
+
+    //temporary test data in a variable
     services.put("https://www.kry.se", "UNKNOWN");
-    vertx.setPeriodic(1000 * 60, timerId -> poller.pollServices(services));
+    services.put("http://www.my.test", "OK");
+    services.put("https://www.another.test", "FAIL");
+
+    vertx.setPeriodic(1000 * 20, timerId -> poller.pollServices(services, vertx, connector));
     setRoutes(router);
     vertx
         .createHttpServer()
@@ -53,6 +62,7 @@ public class MainVerticle extends AbstractVerticle {
           .collect(Collectors.toList());
       req.response()
           .putHeader("content-type", "application/json")
+          .putHeader("Access-Control-Allow-Origin", "*")
           .end(new JsonArray(jsonServices).encode());
     });
     router.post("/service").handler(req -> {
@@ -60,7 +70,16 @@ public class MainVerticle extends AbstractVerticle {
       services.put(jsonBody.getString("url"), "UNKNOWN");
       req.response()
           .putHeader("content-type", "text/plain")
+          .putHeader("Access-Control-Allow-Origin", "*")
           .end("OK");
+    });
+    router.post("/delete").handler(req -> {
+      JsonObject jsonBody = req.getBodyAsJson();
+      services.remove(jsonBody.getString("url"));
+      req.response()
+              .putHeader("content-type", "text/plain")
+              .putHeader("Access-Control-Allow-Origin", "*")
+              .end("REMOVED");
     });
   }
 
